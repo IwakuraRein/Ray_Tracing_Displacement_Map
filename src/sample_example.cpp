@@ -87,7 +87,7 @@ void SampleExample::setup(const VkInstance&               instance,
 void SampleExample::loadScene(const std::string& filename)
 {
   m_scene.load(filename);
-  m_accelStruct.create(m_scene.getScene(), m_scene.getBuffers(Scene::eVertex), m_scene.getBuffers(Scene::eIndex));
+  m_accelStruct.create(m_scene.getScene(), m_scene.getBuffers(Scene::eVertex), m_scene.getBuffers(Scene::eIndex), m_scene.getBuffers(Scene::eAabb));
 
   // The picker is the helper to return information from a ray hit under the mouse cursor
   m_picker.setTlas(m_accelStruct.getTlas());
@@ -438,6 +438,7 @@ void SampleExample::renderScene(const VkCommandBuffer& cmdBuf, nvvk::ProfilerVK&
 //
 void SampleExample::onKeyboard(int key, int scancode, int action, int mods)
 {
+  if (m_busy) return;
   nvvkhl::AppBaseVk::onKeyboard(key, scancode, action, mods);
 
   if(m_busy || action == GLFW_RELEASE)
@@ -523,6 +524,7 @@ void SampleExample::onFileDrop(const char* filename)
 //
 void SampleExample::onMouseMotion(int x, int y)
 {
+  if (m_busy) return;
   AppBaseVk::onMouseMotion(x, y);
   if(m_busy)
     return;
@@ -541,6 +543,7 @@ void SampleExample::onMouseMotion(int x, int y)
 //
 void SampleExample::onMouseButton(int button, int action, int mods)
 {
+  if (m_busy) return;
   AppBaseVk::onMouseButton(button, action, mods);
   if (m_busy)
     return;

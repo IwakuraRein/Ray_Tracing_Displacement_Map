@@ -72,11 +72,12 @@ END_ENUM();
 
 // Scene Data - Set 2
 START_ENUM(SceneBindings)
-  eCamera    = 0, 
-  eMaterials = 1, 
-  eInstData  = 2, 
-  eLights    = 3,            
-  eTextures  = 4  // must be last elem            
+  eCamera           = 0, 
+  eMaterials        = 1, 
+  eInstData         = 2, 
+  eLights           = 3,            
+  eDisplacementMaps = 4,            
+  eTextures         = 5  // must be last elem            
 END_ENUM();
 
 // Environment - Set 3
@@ -124,6 +125,11 @@ struct VertexAttributes
   uint color;     // RGBA
 };
 
+struct Aabb
+{
+  vec3 minimum;
+  vec3 maximum;
+};
 
 // GLTF material
 #define MATERIAL_METALLICROUGHNESS 0
@@ -131,6 +137,12 @@ struct VertexAttributes
 #define ALPHA_OPAQUE 0
 #define ALPHA_MASK 1
 #define ALPHA_BLEND 2
+struct Displacement
+{
+  int texture;
+  float factor;
+  float offset;
+};
 struct GltfShadeMaterial
 {
   // 0
@@ -181,8 +193,8 @@ struct GltfShadeMaterial
   int  clearcoatTexture;
   int  clearcoatRoughnessTexture;
   uint sheen;
-  int  pad;
-  // 52
+  Displacement displacement;
+  vec2 pad;
 };
 
 

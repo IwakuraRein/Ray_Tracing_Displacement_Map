@@ -96,6 +96,8 @@ bool Scene::load(const std::string& filename)
   createTextureImages(cmdBuf, tmodel);
   createVertexBuffer(cmdBuf, gltf);
   createInstanceDataBuffer(cmdBuf, gltf);
+  createAabbBuffer(cmdBuf, gltf, tmodel);
+  createDisplacementTextures(cmdBuf, gltf, tmodel);
 
 
   // Finalizing the command buffer - upload data to GPU
@@ -344,6 +346,71 @@ void Scene::createLightBuffer(VkCommandBuffer cmdBuf, const nvh::GltfScene& gltf
   NAME_VK(m_buffer[eLights].buffer);
 }
 
+void Scene::createAabbBuffer(VkCommandBuffer cmdBuf, const nvh::GltfScene& gltfScene, const tinygltf::Model& gltfModel)
+{
+  for (const auto& node : gltfScene.m_nodes)
+  {
+    const auto& mesh = gltfScene.m_primMeshes[node.primMesh];
+    const auto& mat = gltfScene.m_materials[mesh.materialIndex];
+    if (mat.displacement.displacementGeometryTexture == -1) continue;
+    auto texture = gltfModel.textures[mat.displacement.displacementGeometryTexture];
+    std::vector<Aabb> aabbs;
+    aabbs.reserve(mesh.indexCount);
+    for (uint32_t idx = mesh.firstIndex; idx < mesh.firstIndex + mesh.indexCount - 1; idx += 3) {
+      uint32_t index0 = gltfScene.m_indices[idx] + mesh.vertexOffset;
+      uint32_t index1 = gltfScene.m_indices[idx + 1] + mesh.vertexOffset;
+      uint32_t index2 = gltfScene.m_indices[idx + 2] + mesh.vertexOffset;
+      vec3 v0 = gltfScene.m_positions[index0];
+      vec3 v1 = gltfScene.m_positions[index1];
+      vec3 v2 = gltfScene.m_positions[index2];
+      vec3 normal = nvmath::normalize(nvmath::cross(v1 - v0, v2 - v0));
+      vec3 minimum{
+        std::min(std::min(v0.x, v1.x), v2.x),
+        std::min(std::min(v0.y, v1.y), v2.y),
+        std::min(std::min(v0.z, v1.z), v2.z),
+      };
+      vec3 maximum{
+        std::max(std::max(v0.x, v1.x), v2.x),
+        std::max(std::max(v0.y, v1.y), v2.y),
+        std::max(std::max(v0.z, v1.z), v2.z),
+      };
+
+      // TODO: Addust according to the displacement texture.
+      v0 = v0 + (mat.displacement.displacementGeometryOffset + mat.displacement.displacementGeometryFactor) * normal;
+      v1 = v1 + (mat.displacement.displacementGeometryOffset + mat.displacement.displacementGeometryFactor) * normal;
+      v2 = v2 + (mat.displacement.displacementGeometryOffset + mat.displacement.displacementGeometryFactor) * normal;
+      minimum = vec3{
+        std::min(std::min(std::min(v0.x, v1.x), v2.x), minimum.x),
+        std::min(std::min(std::min(v0.y, v1.y), v2.y), minimum.y),
+        std::min(std::min(std::min(v0.z, v1.z), v2.z), minimum.z),
+      };
+      maximum = vec3{
+        std::max(std::max(std::max(v0.x, v1.x), v2.x), maximum.x),
+        std::max(std::max(std::max(v0.y, v1.y), v2.y), maximum.y),
+        std::max(std::max(std::max(v0.z, v1.z), v2.z), maximum.z),
+      };
+      v0 = v0 + (mat.displacement.displacementGeometryOffset - mat.displacement.displacementGeometryFactor) * normal;
+      v1 = v1 + (mat.displacement.displacementGeometryOffset - mat.displacement.displacementGeometryFactor) * normal;
+      v2 = v2 + (mat.displacement.displacementGeometryOffset - mat.displacement.displacementGeometryFactor) * normal;
+      minimum = vec3{
+        std::min(std::min(std::min(v0.x, v1.x), v2.x), minimum.x),
+        std::min(std::min(std::min(v0.y, v1.y), v2.y), minimum.y),
+        std::min(std::min(std::min(v0.z, v1.z), v2.z), minimum.z),
+      };
+      maximum = vec3{
+        std::max(std::max(std::max(v0.x, v1.x), v2.x), maximum.x),
+        std::max(std::max(std::max(v0.y, v1.y), v2.y), maximum.y),
+        std::max(std::max(std::max(v0.z, v1.z), v2.z), maximum.z),
+      };
+      aabbs.emplace_back(Aabb{ minimum, maximum });
+    }
+    auto buffer = m_pAlloc->createBuffer(cmdBuf, aabbs, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+      | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR);
+    m_buffers[eAabb].emplace_back(buffer);
+    NAME_IDX_VK(buffer.buffer, node.primMesh);
+  }
+}
+
 //--------------------------------------------------------------------------------------------------
 // Create a buffer of all materials
 // Most parameters are supported, and GltfShadeMaterial is GLSL packed compliant
@@ -354,6 +421,7 @@ void Scene::createMaterialBuffer(VkCommandBuffer cmdBuf, const nvh::GltfScene& g
   MilliTimer timer;
 
   std::vector<GltfShadeMaterial> shadeMaterials;
+  int displacementCount{ 0 };
   for(auto& m : gltf.m_materials)
   {
     GltfShadeMaterial smat{};
@@ -391,6 +459,10 @@ void Scene::createMaterialBuffer(VkCommandBuffer cmdBuf, const nvh::GltfScene& g
     smat.clearcoatTexture             = m.clearcoat.texture;
     smat.clearcoatRoughnessTexture    = m.clearcoat.roughnessTexture;
     smat.sheen                        = packUnorm4x8(vec4(m.sheen.colorFactor, m.sheen.roughnessFactor));
+
+    smat.displacement.factor = m.displacement.displacementGeometryFactor;
+    smat.displacement.offset = m.displacement.displacementGeometryOffset;
+    smat.displacement.texture = m.displacement.displacementGeometryTexture != -1 ? displacementCount++ : -1;
 
     shadeMaterials.emplace_back(smat);
   }
@@ -432,6 +504,12 @@ void Scene::destroy()
     i = {};
   }
   m_images.clear();
+  for(auto& i : m_displacementImages)
+  {
+    m_pAlloc->destroy(i.first);
+    i = {};
+  }
+  m_displacementImages.clear();
 
   for(size_t i = 0; i < m_defaultTextures.size(); i++)
   {
@@ -447,6 +525,12 @@ void Scene::destroy()
     t = {};
   }
   m_textures.clear();
+  for(auto& t : m_displacementTextures)
+  {
+    vkDestroyImageView(m_device, t.descriptor.imageView, nullptr);
+    t = {};
+  }
+  m_displacementTextures.clear();
 
 
   vkDestroyDescriptorPool(m_device, m_descPool, nullptr);
@@ -596,6 +680,130 @@ void Scene::createTextureImages(VkCommandBuffer cmdBuf, tinygltf::Model& gltfMod
 
   timer.print();
 }
+std::vector<unsigned char> generateMax(
+  const tinygltf::Image& image, const std::vector<unsigned char>& lastBuf, int W, int H, int lastW, int lastH) {
+  static int stride = image.image.size() / image.width / image.height;
+  std::vector<unsigned char> thisBuf;
+  if (lastBuf.empty()) {
+    thisBuf.reserve(image.width * image.height);
+    for (int w = 0; w < image.width; w++) {
+      for (int h = 0; h < image.height; h++) {
+        thisBuf.push_back(image.image[(w * H + h) * stride]);
+      }
+    }
+  }
+  else {
+    thisBuf.resize(W * H * 2);
+    for (int w = 0; w < W; w++) {
+      for (int h = 0; h < H; h++) {
+        if (h * 2 > lastH || w * 2 > lastW) {
+          thisBuf[(h * W + w)] = 255;
+          break;
+        }
+        unsigned char p0 = lastBuf[(w * lastH + h)];
+        unsigned char p1 = lastBuf[(w * lastH + h + 1)];
+        unsigned char p2 = lastBuf[(w * lastH + lastH + h + 1)];
+        unsigned char p3 = lastBuf[(w * lastH + lastH + h)];
+        thisBuf[(w * H + h)] = std::max(p0, std::max(p1, std::max(p2, p3)));
+      }
+    }
+  }
+  return thisBuf;
+}
+void Scene::createDisplacementTextures(VkCommandBuffer cmdBuf, const nvh::GltfScene& gltfScene, tinygltf::Model& gltfModel)
+{
+  LOGI(" - Creating Displacement Textures");
+  MilliTimer timer;
+
+  VkFormat format = VK_FORMAT_R8_UNORM;
+
+  static std::array<uint8_t, 2> white = { 255, 255 };
+
+  // Sampler
+  VkSamplerCreateInfo samplerCreateInfo{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+  samplerCreateInfo.minFilter = VK_FILTER_NEAREST;
+  samplerCreateInfo.magFilter = VK_FILTER_NEAREST;
+  samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+
+  for (const auto& mat : gltfScene.m_materials)
+  {
+    if (mat.displacement.displacementGeometryTexture == -1) continue;
+
+    auto& gltfTexture = gltfModel.textures[mat.displacement.displacementGeometryTexture];
+    auto& gltfimage = gltfModel.images[gltfTexture.source];
+    VkImageCreateInfo      imageCreateInfo;
+    nvvk::Image            image;
+    if (gltfimage.width == -1 || gltfimage.height == -1 || gltfimage.image.empty())
+    {
+      // Image not present or incorrectly loaded (image.empty)
+      imageCreateInfo = nvvk::makeImage2DCreateInfo(VkExtent2D{ 1, 1 });
+      image = m_pAlloc->createImage(cmdBuf, 2, white.data(), imageCreateInfo);
+    }
+    else {
+      auto         imgSize = VkExtent2D{ (uint32_t)gltfimage.width, (uint32_t)gltfimage.height };
+
+      imageCreateInfo = nvvk::makeImage2DCreateInfo(imgSize, format, VK_IMAGE_USAGE_SAMPLED_BIT, true);
+      image = m_pAlloc->createImage(imageCreateInfo);
+      //image = m_pAlloc->createImage(cmdBuf, gltfimage.image.size(), (void*)gltfimage.image.data(), imageCreateInfo);
+
+      nvvk::cmdBarrierImageLayout(cmdBuf, image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+      // Copy buffer to image
+      VkImageSubresourceRange subresourceRange{};
+      subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      subresourceRange.baseArrayLayer = 0;
+      subresourceRange.baseMipLevel = 0;
+      subresourceRange.layerCount = 1;
+      subresourceRange.levelCount = imageCreateInfo.mipLevels;
+
+      VkOffset3D               offset = { 0 };
+      VkImageSubresourceLayers subresource = { 0 };
+      subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      subresource.layerCount = 1;
+
+      std::vector<unsigned char> last_buffer;
+      int thisW = gltfimage.width;
+      int thisH = gltfimage.height;
+      int lastW = 0;
+      int lastH = 0;
+
+      for (uint32_t i = 0; i < imageCreateInfo.mipLevels; i++) {
+        subresource.mipLevel = i;
+
+        auto buffer = generateMax(gltfimage, last_buffer, thisW, thisH, lastW, lastH);
+        m_pAlloc->getStaging()->cmdToImage(cmdBuf, image.image, offset, { static_cast<unsigned int>(thisW), static_cast<unsigned int>(thisH), 1 }, subresource, thisW * thisH * 2, buffer.data());
+        last_buffer = std::move(buffer);
+
+        lastH = thisH;
+        lastW = thisW;
+        thisW = thisW > 1 ? thisW / 2 : 1;
+        thisH = thisH > 1 ? thisH / 2 : 1;
+        //offset.x += lastW;
+        //offset.y += lastH;
+      }
+
+      nvvk::cmdBarrierImageLayout(cmdBuf, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+      m_displacementImages.emplace_back(image, imageCreateInfo);
+      VkImageViewCreateInfo ivInfo = nvvk::makeImageViewCreateInfo(m_displacementImages.back().first.image, m_displacementImages.back().second);
+      m_displacementTextures.emplace_back(m_pAlloc->createTexture(m_displacementImages.back().first, ivInfo, samplerCreateInfo));
+
+      NAME_IDX_VK(m_displacementTextures.back().image, m_displacementTextures.size() - 1);
+    }
+  }
+
+  if (m_displacementTextures.empty())
+  {
+    // No images, add a default one.
+    VkImageCreateInfo imageCreateInfo = nvvk::makeImage2DCreateInfo(VkExtent2D{ 1, 1 });
+    nvvk::Image image = m_pAlloc->createImage(cmdBuf, 2, white.data(), imageCreateInfo);
+    m_displacementImages.emplace_back(image, imageCreateInfo);
+    VkImageViewCreateInfo ivInfo = nvvk::makeImageViewCreateInfo(m_displacementImages.back().first.image, m_displacementImages.back().second);
+    m_displacementTextures.emplace_back(m_pAlloc->createTexture(m_displacementImages.back().first, ivInfo, samplerCreateInfo));
+  }
+
+  timer.print();
+}
 
 //--------------------------------------------------------------------------------------------------
 // Creating the descriptor for the scene
@@ -605,13 +813,12 @@ void Scene::createDescriptorSet(const nvh::GltfScene& gltf)
 {
   VkShaderStageFlags flag = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR
                             | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-  auto nb_meshes  = static_cast<uint32_t>(gltf.m_primMeshes.size());
-  auto nbTextures = static_cast<uint32_t>(m_textures.size());
 
   nvvk::DescriptorSetBindings bind;
   bind.addBinding({SceneBindings::eCamera, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, flag});
   bind.addBinding({SceneBindings::eMaterials, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, flag});
-  bind.addBinding({SceneBindings::eTextures, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nbTextures, flag});
+  bind.addBinding({SceneBindings::eTextures, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<uint32_t>(m_textures.size()), flag});
+  bind.addBinding({SceneBindings::eDisplacementMaps, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<uint32_t>(m_displacementTextures.size()), flag});
   bind.addBinding({SceneBindings::eInstData, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, flag});
   bind.addBinding({SceneBindings::eLights, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, flag});
 
@@ -629,12 +836,16 @@ void Scene::createDescriptorSet(const nvh::GltfScene& gltf)
   std::vector<VkDescriptorImageInfo> t_info;
   for(auto& texture : m_textures)
     t_info.emplace_back(texture.descriptor);
+  std::vector<VkDescriptorImageInfo> t_info2;
+  for(auto& texture : m_displacementTextures)
+    t_info2.emplace_back(texture.descriptor);
 
   std::vector<VkWriteDescriptorSet> writes;
   writes.emplace_back(bind.makeWrite(m_descSet, SceneBindings::eCamera, &dbi[eCameraMat]));
   writes.emplace_back(bind.makeWrite(m_descSet, SceneBindings::eMaterials, &dbi[eMaterial]));
   writes.emplace_back(bind.makeWrite(m_descSet, SceneBindings::eInstData, &dbi[eInstData]));
   writes.emplace_back(bind.makeWrite(m_descSet, SceneBindings::eLights, &dbi[eLights]));
+  writes.emplace_back(bind.makeWriteArray(m_descSet, SceneBindings::eDisplacementMaps, t_info2.data()));
   writes.emplace_back(bind.makeWriteArray(m_descSet, SceneBindings::eTextures, t_info.data()));
 
   // Writing the information

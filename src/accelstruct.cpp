@@ -52,13 +52,17 @@ void AccelStructure::destroy()
   vkDestroyDescriptorSetLayout(m_device, m_rtDescSetLayout, nullptr);
 }
 
-void AccelStructure::create(nvh::GltfScene& gltfScene, const std::vector<nvvk::Buffer>& vertex, const std::vector<nvvk::Buffer>& index)
+void AccelStructure::create(
+  nvh::GltfScene& gltfScene,
+  const std::vector<nvvk::Buffer>& vertex,
+  const std::vector<nvvk::Buffer>& index,
+  const std::vector<nvvk::Buffer>& aabb)
 {
   MilliTimer timer;
   LOGI("Create acceleration structure \n");
   destroy();  // reset
 
-  createBottomLevelAS(gltfScene, vertex, index);
+  createBottomLevelAS(gltfScene, vertex, index, aabb);
   createTopLevelAS(gltfScene);
   createRtDescriptorSet();
   timer.print();
@@ -105,19 +109,54 @@ nvvk::RaytracingBuilderKHR::BlasInput AccelStructure::primitiveToGeometry(const 
 }
 
 //--------------------------------------------------------------------------------------------------
+// Converting a GLTF primitive with displacement map in the Raytracing Geometry used for the BLAS
+//
+nvvk::RaytracingBuilderKHR::BlasInput AccelStructure::aabbPrimitiveToGeometry(const nvh::GltfPrimMesh& prim, VkBuffer aabbs)
+{
+	VkBufferDeviceAddressInfo info{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
+	info.buffer = aabbs;
+	VkDeviceAddress dataAddress = vkGetBufferDeviceAddress(m_device, &info);
+
+	VkAccelerationStructureGeometryAabbsDataKHR aabbsData{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_AABBS_DATA_KHR };
+	aabbsData.data.deviceAddress = dataAddress;
+	aabbsData.stride = sizeof(Aabb);
+	// Setting up the build info of the acceleration
+	VkAccelerationStructureGeometryKHR asGeom{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
+	asGeom.geometryType = VK_GEOMETRY_TYPE_AABBS_KHR;
+	asGeom.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+	asGeom.geometry.aabbs = aabbsData;
+
+	VkAccelerationStructureBuildRangeInfoKHR offset;
+	offset.firstVertex = 0;
+	offset.primitiveCount = prim.indexCount / 3;
+	offset.primitiveOffset = 0;
+	offset.transformOffset = 0;
+
+	nvvk::RaytracingBuilderKHR::BlasInput input;
+	input.asGeometry.emplace_back(asGeom);
+	input.asBuildOffsetInfo.emplace_back(offset);
+	return input;
+}
+
+//--------------------------------------------------------------------------------------------------
 //
 //
 void AccelStructure::createBottomLevelAS(nvh::GltfScene&                  gltfScene,
                                          const std::vector<nvvk::Buffer>& vertex,
-                                         const std::vector<nvvk::Buffer>& index)
+                                         const std::vector<nvvk::Buffer>& index,
+                                         const std::vector<nvvk::Buffer>& aabb)
 {
   // BLAS - Storing each primitive in a geometry
   uint32_t                                           prim_idx{0};
   std::vector<nvvk::RaytracingBuilderKHR::BlasInput> allBlas;
   allBlas.reserve(gltfScene.m_primMeshes.size());
+  int aabbIdx = 0;
   for(nvh::GltfPrimMesh& primMesh : gltfScene.m_primMeshes)
   {
-    auto geo = primitiveToGeometry(primMesh, vertex[prim_idx].buffer, index[prim_idx].buffer);
+    nvh::GltfMaterial mat = gltfScene.m_materials[primMesh.materialIndex];
+    nvvk::RaytracingBuilderKHR::BlasInput geo;
+    if (mat.displacement.displacementGeometryTexture == -1) geo = primitiveToGeometry(primMesh, vertex[prim_idx].buffer, index[prim_idx].buffer);
+    else geo = aabbPrimitiveToGeometry(primMesh, aabb[aabbIdx++].buffer);
     allBlas.push_back({geo});
     prim_idx++;
   }
@@ -149,11 +188,12 @@ void AccelStructure::createTopLevelAS(nvh::GltfScene& gltfScene)
       flags |= VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
 
     VkAccelerationStructureInstanceKHR rayInst{};
-    rayInst.transform                      = nvvk::toTransformMatrixKHR(node.worldMatrix);
-    rayInst.instanceCustomIndex            = node.primMesh;  // gl_InstanceCustomIndexEXT: to find which primitive
-    rayInst.accelerationStructureReference = m_rtBuilder.getBlasDeviceAddress(node.primMesh);
-    rayInst.flags                          = flags;
-    rayInst.instanceShaderBindingTableRecordOffset = 0;  // We will use the same hit group for all objects
+    rayInst.transform                              = nvvk::toTransformMatrixKHR(node.worldMatrix);
+    rayInst.instanceCustomIndex                    = node.primMesh;  // gl_InstanceCustomIndexEXT: to find which primitive
+    rayInst.accelerationStructureReference         = m_rtBuilder.getBlasDeviceAddress(node.primMesh);
+    rayInst.flags                                  = flags;
+    //rayInst.instanceShaderBindingTableRecordOffset = mat.displacement.displacementGeometryTexture == -1 ? 0 : 1;
+    rayInst.instanceShaderBindingTableRecordOffset = 0;
     rayInst.mask                                   = 0xFF;
     tlas.emplace_back(rayInst);
   }

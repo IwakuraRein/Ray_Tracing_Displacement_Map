@@ -50,6 +50,7 @@ public:
   {
     eVertex,
     eIndex,
+    eAabb,
     eLast_elem
   };
 
@@ -62,6 +63,7 @@ public:
   void setCameraFromScene(const std::string& filename, const nvh::GltfScene& gltf);
   bool loadGltfScene(const std::string& filename, tinygltf::Model& tmodel);
   void createLightBuffer(VkCommandBuffer cmdBuf, const nvh::GltfScene& gltf);
+  void createAabbBuffer(VkCommandBuffer cmdBuf, const nvh::GltfScene& gltfScene, const tinygltf::Model& gltfModel);
   void createMaterialBuffer(VkCommandBuffer cmdBuf, const nvh::GltfScene& gltf);
   void destroy();
   void updateCamera(const VkCommandBuffer& cmdBuf, float aspectRatio);
@@ -77,6 +79,7 @@ public:
 
 private:
   void createTextureImages(VkCommandBuffer cmdBuf, tinygltf::Model& gltfModel);
+  void createDisplacementTextures(VkCommandBuffer cmdBuf, const nvh::GltfScene& gltfScene, tinygltf::Model& gltfModel);
   void createDescriptorSet(const nvh::GltfScene& gltf);
 
   nvh::GltfScene m_gltf;
@@ -93,9 +96,11 @@ private:
 
   // Resources
   std::array<nvvk::Buffer, 5>                            m_buffer;           // For single buffer
-  std::array<std::vector<nvvk::Buffer>, 2>               m_buffers;          // For array of buffers (vertex/index)
+  std::array<std::vector<nvvk::Buffer>, 3>               m_buffers;          // For array of buffers (vertex/index)
+  std::vector<nvvk::Texture>                             m_displacementTextures;         // vector of all textures of the scene
   std::vector<nvvk::Texture>                             m_textures;         // vector of all textures of the scene
   std::vector<std::pair<nvvk::Image, VkImageCreateInfo>> m_images;           // vector of all images of the scene
+  std::vector<std::pair<nvvk::Image, VkImageCreateInfo>> m_displacementImages;           // vector of all images of the scene
   std::vector<size_t>                                    m_defaultTextures;  // for cleanup
 
   VkDescriptorPool      m_descPool{VK_NULL_HANDLE};
