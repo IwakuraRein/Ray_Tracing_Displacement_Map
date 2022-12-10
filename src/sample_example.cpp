@@ -26,8 +26,6 @@
 #define VMA_IMPLEMENTATION
 
 #include "shaders/host_device.h"
-#include "rayquery.hpp"
-#include "rtx_pipeline.hpp"
 #include "sample_example.hpp"
 #include "sample_gui.hpp"
 #include "tools.hpp"
@@ -71,12 +69,8 @@ void SampleExample::setup(const VkInstance&               instance,
   m_skydome.setup(device, physicalDevice, queues[eTransfer].familyIndex, &m_alloc);
 
   // Create and setup all renderers
-  m_pRender[eRtxPipeline] = new RtxPipeline;
-  m_pRender[eRayQuery]    = new RayQuery;
-  for(auto r : m_pRender)
-  {
-    r->setup(m_device, physicalDevice, queues[eTransfer].familyIndex, &m_alloc);
-  }
+  m_pRenderer = std::make_unique<Renderer>();
+  m_pRenderer->setup(m_device, physicalDevice, queues[eTransfer].familyIndex, &m_alloc);
 }
 
 
@@ -137,10 +131,8 @@ void SampleExample::loadAssets(const char* filename)
       // Loading the scene might have loaded new textures, which is changing the number of elements
       // in the DescriptorSetLayout. Therefore, the PipelineLayout will be out-of-date and need
       // to be re-created. If they are re-created, the pipeline also need to be re-created.
-      for(auto& r : m_pRender)
-        r->destroy();
-
-      m_pRender[m_rndMethod]->create(
+      m_pRenderer->destroy();
+      m_pRenderer->create(
           m_size, {m_accelStruct.getDescLayout(), m_offscreen.getDescLayout(), m_scene.getDescLayout(), m_descSetLayout}, &m_scene);
     }
 
@@ -277,11 +269,8 @@ void SampleExample::destroyResources()
   m_axis.deinit();
 
   // All renderers
-  for(auto p : m_pRender)
-  {
-    p->destroy();
-    p = nullptr;
-  }
+  m_pRenderer->destroy();
+  m_pRenderer = nullptr;
 
   // Memory
   m_alloc.deinit();
@@ -316,21 +305,16 @@ void SampleExample::renderGui(nvvk::ProfilerVK& profiler)
 //--------------------------------------------------------------------------------------------------
 // Creating the render: RTX, Ray Query, ...
 // - Destroy the previous one.
-void SampleExample::createRender(RndMethod method)
+void SampleExample::createRenderer()
 {
-  if(method == m_rndMethod)
-    return;
-
-  LOGI("Switching renderer, from %d to %d \n", m_rndMethod, method);
-  if(m_rndMethod != eNone)
-  {
+  LOGI("Creating renderer\n");
+  if (m_pRenderer != nullptr) {
     vkDeviceWaitIdle(m_device);  // cannot destroy while in use
-    m_pRender[m_rndMethod]->destroy();
-  }
-  m_rndMethod = method;
+    m_pRenderer->destroy();
 
-  m_pRender[m_rndMethod]->create(
-      m_size, {m_accelStruct.getDescLayout(), m_offscreen.getDescLayout(), m_scene.getDescLayout(), m_descSetLayout}, &m_scene);
+    m_pRenderer->create(
+      m_size, { m_accelStruct.getDescLayout(), m_offscreen.getDescLayout(), m_scene.getDescLayout(), m_descSetLayout }, &m_scene);
+  }
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -411,9 +395,9 @@ void SampleExample::renderScene(const VkCommandBuffer& cmdBuf, nvvk::ProfilerVK&
 
   m_rtxState.size = {render_size.width, render_size.height};
   // State is the push constant structure
-  m_pRender[m_rndMethod]->setPushContants(m_rtxState);
+  m_pRenderer->setPushContants(m_rtxState);
   // Running the renderer
-  m_pRender[m_rndMethod]->run(cmdBuf, render_size, profiler,
+  m_pRenderer->run(cmdBuf, render_size, profiler,
                               {m_accelStruct.getDescSet(), m_offscreen.getDescSet(), m_scene.getDescSet(), m_descSet});
 
 
@@ -438,7 +422,6 @@ void SampleExample::renderScene(const VkCommandBuffer& cmdBuf, nvvk::ProfilerVK&
 //
 void SampleExample::onKeyboard(int key, int scancode, int action, int mods)
 {
-  if (m_busy) return;
   nvvkhl::AppBaseVk::onKeyboard(key, scancode, action, mods);
 
   if(m_busy || action == GLFW_RELEASE)
@@ -524,7 +507,6 @@ void SampleExample::onFileDrop(const char* filename)
 //
 void SampleExample::onMouseMotion(int x, int y)
 {
-  if (m_busy) return;
   AppBaseVk::onMouseMotion(x, y);
   if(m_busy)
     return;
@@ -543,7 +525,6 @@ void SampleExample::onMouseMotion(int x, int y)
 //
 void SampleExample::onMouseButton(int button, int action, int mods)
 {
-  if (m_busy) return;
   AppBaseVk::onMouseButton(button, action, mods);
   if (m_busy)
     return;

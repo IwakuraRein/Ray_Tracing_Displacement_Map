@@ -30,7 +30,7 @@
 #include "nvh/alignment.hpp"
 #include "nvh/fileoperations.hpp"
 #include "nvvk/shaders_vk.hpp"
-#include "rtx_pipeline.hpp"
+#include "renderer.hpp"
 #include "scene.hpp"
 #include "tools.hpp"
 
@@ -44,7 +44,7 @@
 //--------------------------------------------------------------------------------------------------
 // Typical resource holder + query for capabilities
 //
-void RtxPipeline::setup(const VkDevice& device, const VkPhysicalDevice& physicalDevice, uint32_t familyIndex, nvvk::ResourceAllocator* allocator)
+void Renderer::setup(const VkDevice& device, const VkPhysicalDevice& physicalDevice, uint32_t familyIndex, nvvk::ResourceAllocator* allocator)
 {
   m_device     = device;
   m_pAlloc     = allocator;
@@ -63,7 +63,7 @@ void RtxPipeline::setup(const VkDevice& device, const VkPhysicalDevice& physical
 //--------------------------------------------------------------------------------------------------
 // Destroy all allocated resources
 //
-void RtxPipeline::destroy()
+void Renderer::destroy()
 {
   m_stbWrapper.destroy();
 
@@ -77,7 +77,7 @@ void RtxPipeline::destroy()
 //--------------------------------------------------------------------------------------------------
 // Creation of the pipeline and layout
 //
-void RtxPipeline::create(const VkExtent2D& size, const std::vector<VkDescriptorSetLayout>& rtDescSetLayouts, Scene* scene)
+void Renderer::create(const VkExtent2D& size, const std::vector<VkDescriptorSetLayout>& rtDescSetLayouts, Scene* scene)
 {
   MilliTimer timer;
   LOGI("Create RtxPipeline");
@@ -94,7 +94,7 @@ void RtxPipeline::create(const VkExtent2D& size, const std::vector<VkDescriptorS
 // The layout has a push constant and the incoming descriptors are:
 // acceleration structure, offscreen image, scene data, hdr
 //
-void RtxPipeline::createPipelineLayout(const std::vector<VkDescriptorSetLayout>& rtDescSetLayouts)
+void Renderer::createPipelineLayout(const std::vector<VkDescriptorSetLayout>& rtDescSetLayouts)
 {
   vkDestroyPipelineLayout(m_device, m_rtPipelineLayout, nullptr);
 
@@ -113,7 +113,7 @@ void RtxPipeline::createPipelineLayout(const std::vector<VkDescriptorSetLayout>&
 //--------------------------------------------------------------------------------------------------
 // Pipeline for the ray tracer: all shaders, raygen, chit, miss
 //
-void RtxPipeline::createPipeline()
+void Renderer::createPipeline()
 {
   vkDestroyPipeline(m_device, m_rtPipeline, nullptr);
 
@@ -252,7 +252,7 @@ void RtxPipeline::createPipeline()
 //--------------------------------------------------------------------------------------------------
 // Ray Tracing the scene
 //
-void RtxPipeline::run(const VkCommandBuffer& cmdBuf, const VkExtent2D& size, nvvk::ProfilerVK& profiler, const std::vector<VkDescriptorSet>& descSets)
+void Renderer::run(const VkCommandBuffer& cmdBuf, const VkExtent2D& size, nvvk::ProfilerVK& profiler, const std::vector<VkDescriptorSet>& descSets)
 {
   LABEL_SCOPE_VK(cmdBuf);
 
@@ -271,7 +271,7 @@ void RtxPipeline::run(const VkCommandBuffer& cmdBuf, const VkExtent2D& size, nvv
 //--------------------------------------------------------------------------------------------------
 // Toggle the usage of Anyhit. Not having anyhit can be faster, but the scene must but fully opaque
 //
-void RtxPipeline::useAnyHit(bool enable)
+void Renderer::useAnyHit(bool enable)
 {
   m_enableAnyhit = enable;
   createPipeline();

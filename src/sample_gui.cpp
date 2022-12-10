@@ -31,7 +31,7 @@
 
 #include "imgui_helper.h"
 #include "imgui_orient.h"
-#include "rtx_pipeline.hpp"
+#include "renderer.hpp"
 #include "sample_example.hpp"
 #include "sample_gui.hpp"
 #include "tools.hpp"
@@ -135,16 +135,12 @@ bool SampleGUI::guiRayTracing()
   changed |= GuiH::Selection("Pbr Mode", "PBR material model", &rtxState.pbrMode, nullptr, Normal, {"Disney", "Gltf"});
 
   static bool bAnyHit = true;
-  if(_se->m_rndMethod == SampleExample::RndMethod::eRtxPipeline)
+  if(GuiH::Checkbox("Enable AnyHit", "AnyHit is used for double sided, cutout opacity, but can be slower when all objects are opaque",
+                    &bAnyHit, nullptr))
   {
-    if(GuiH::Checkbox("Enable AnyHit", "AnyHit is used for double sided, cutout opacity, but can be slower when all objects are opaque",
-                      &bAnyHit, nullptr))
-    {
-      auto rtx = dynamic_cast<RtxPipeline*>(_se->m_pRender[_se->m_rndMethod]);
-      vkDeviceWaitIdle(_se->m_device);  // cannot run while changing this
-      rtx->useAnyHit(bAnyHit);
-      changed = true;
-    }
+    vkDeviceWaitIdle(_se->m_device);  // cannot run while changing this
+    _se->m_pRenderer->useAnyHit(bAnyHit);
+    changed = true;
   }
 
   GuiH::Group<bool>("Debugging", false, [&] {
@@ -174,18 +170,6 @@ bool SampleGUI::guiRayTracing()
     }
     return changed;
   });
-
-  if(_se->m_supportRayQuery)
-  {
-    SampleExample::RndMethod method = _se->m_rndMethod;  //renderMethod;
-    if(GuiH::Selection<int>("Rendering Pipeline", "Choose the type of rendering", (int*)&method, nullptr,
-                            GuiH::Control::Flags::Normal, {"Rtx", "Compute"}))
-    {
-      _se->createRender(method);
-      //      _se->renderMethod = method;
-      changed = true;
-    }
-  }
 
   GuiH::Info("Frame", "", std::to_string(rtxState.frame), GuiH::Flags::Disabled);
   return changed;
@@ -529,8 +513,6 @@ void SampleGUI::titleBar()
       o << " | " << g_nvml.getSysInfo().driverVersion;
     }
 #endif
-    if(_se->m_rndMethod != SampleExample::eNone && _se->m_pRender[_se->m_rndMethod] != nullptr)
-      o << " | " << _se->m_pRender[_se->m_rndMethod]->name();
     glfwSetWindowTitle(_se->m_window, o.str().c_str());
     dirtyTimer = 0;
   }

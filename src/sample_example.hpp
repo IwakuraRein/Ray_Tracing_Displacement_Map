@@ -21,7 +21,7 @@
 #pragma once
 #include "hdr_sampling.hpp"
 #include "nvvk/gizmos_vk.hpp"
-#include "renderer.h"
+#include "renderer.hpp"
 
 /*
 
@@ -83,13 +83,6 @@ class SampleExample : public nvvkhl::AppBaseVk
   friend SampleGUI;
 
 public:
-  enum RndMethod
-  {
-    eRtxPipeline,
-    eRayQuery,
-    eNone,
-  };
-
   enum Queues
   {
     eGCT0,
@@ -114,7 +107,7 @@ public:
   void onMouseMotion(int x, int y) override;
   void onResize(int /*w*/, int /*h*/) override;
   void renderGui(nvvk::ProfilerVK& profiler);
-  void createRender(RndMethod method);
+  void createRenderer();
   void resetFrame();
   void screenPicking();
   void updateFrame();
@@ -133,8 +126,7 @@ public:
   bool m_supportRayQuery{true};
 
   // All renderers
-  std::array<Renderer*, eNone> m_pRender{nullptr, nullptr};
-  RndMethod                    m_rndMethod{eNone};
+  std::unique_ptr<Renderer> m_pRenderer{ nullptr };
 
   nvvk::Buffer m_sunAndSkyBuffer;
 

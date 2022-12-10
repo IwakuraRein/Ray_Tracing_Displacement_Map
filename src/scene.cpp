@@ -498,6 +498,12 @@ void Scene::destroy()
   }
   m_buffers[eIndex].clear();
 
+  for(auto& buffers : m_buffers[eAabb])
+  {
+    m_pAlloc->destroy(buffers);
+  }
+  m_buffers[eAabb].clear();
+
   for(auto& i : m_images)
   {
     m_pAlloc->destroy(i.first);
