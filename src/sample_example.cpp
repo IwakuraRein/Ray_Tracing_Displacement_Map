@@ -356,8 +356,9 @@ void SampleExample::drawPost(VkCommandBuffer cmdBuf)
   vkCmdSetViewport(cmdBuf, 0, 1, &viewport);
   vkCmdSetScissor(cmdBuf, 0, 1, &scissor);
 
-  m_offscreen.m_tonemapper.zoom           = m_descaling ? 1.0f / m_descalingLevel : 1.0f;
-  m_offscreen.m_tonemapper.renderingRatio = size / area;
+  m_offscreen.m_push.debugging_mode = m_rtxState.debugging_mode;
+  m_offscreen.m_push.zoom           = m_descaling ? 1.0f / m_descalingLevel : 1.0f;
+  m_offscreen.m_push.renderingRatio = size / area;
   m_offscreen.run(cmdBuf);
 
   if(m_showAxis)
@@ -402,7 +403,7 @@ void SampleExample::renderScene(const VkCommandBuffer& cmdBuf, nvvk::ProfilerVK&
 
 
   // For automatic brightness tonemapping
-  if(m_offscreen.m_tonemapper.autoExposure)
+  if(m_offscreen.m_push.tm.autoExposure)
   {
     auto slot = profiler.timeRecurring("Mipmap", cmdBuf);
     m_offscreen.genMipmap(cmdBuf);
@@ -531,7 +532,7 @@ void SampleExample::onMouseButton(int button, int action, int mods)
 
   if((m_inputs.lmb || m_inputs.rmb || m_inputs.mmb) == false && action == GLFW_RELEASE && m_descaling == true)
   {
-    m_descaling = false;
+    //m_descaling = false;
     resetFrame();
   }
 }

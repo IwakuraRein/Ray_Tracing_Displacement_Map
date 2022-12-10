@@ -54,6 +54,7 @@ public:
   void create(const VkExtent2D& size, const std::vector<VkDescriptorSetLayout>& rtDescSetLayouts, Scene* scene);
   void run(const VkCommandBuffer& cmdBuf, const VkExtent2D& size, nvvk::ProfilerVK& profiler, const std::vector<VkDescriptorSet>& descSets);
   void useAnyHit(bool enable);
+  void useDisplacementMap(bool enable);
   void setPushContants(const RtxState& state) { m_state = state; }
   
   RtxState m_state{};
@@ -65,6 +66,7 @@ private:
 
   uint32_t m_nbHit{ 1 };
   bool     m_enableAnyhit{ true };
+  bool     m_enableDisplacement{ true };
 
 private:
   // Setup

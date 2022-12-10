@@ -192,8 +192,7 @@ void AccelStructure::createTopLevelAS(nvh::GltfScene& gltfScene)
     rayInst.instanceCustomIndex                    = node.primMesh;  // gl_InstanceCustomIndexEXT: to find which primitive
     rayInst.accelerationStructureReference         = m_rtBuilder.getBlasDeviceAddress(node.primMesh);
     rayInst.flags                                  = flags;
-    //rayInst.instanceShaderBindingTableRecordOffset = mat.displacement.displacementGeometryTexture == -1 ? 0 : 1;
-    rayInst.instanceShaderBindingTableRecordOffset = 0;
+    rayInst.instanceShaderBindingTableRecordOffset = mat.displacement.displacementGeometryTexture == -1 ? 0 : 1;
     rayInst.mask                                   = 0xFF;
     tlas.emplace_back(rayInst);
   }

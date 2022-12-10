@@ -25,6 +25,10 @@
 #ifndef RAYCOMMON_GLSL
 #define RAYCOMMON_GLSL
 
+#define HIT_KIND_TRIANGLE 0
+#define HIT_KIND_DISPLACED_TRIANGLE 1
+#define HIT_KIND_DISPLACED_CUBE 2
+
 
 //-----------------------------------------------------------------------
 // Debugging
@@ -110,6 +114,107 @@ vec3 OffsetRay(in vec3 p, in vec3 n)
   return vec3(abs(p.x) < origin ? p.x + floatScale * n.x : p_i.x,  //
               abs(p.y) < origin ? p.y + floatScale * n.y : p_i.y,  //
               abs(p.z) < origin ? p.z + floatScale * n.z : p_i.z);
+}
+
+vec3 getBaryCoord(vec2 p, vec2 a, vec2 b, vec2 c)
+{
+  vec2 v0 = b - a, v1 = c - a, v2 = p - a;
+  float denom = 1.0 / (v0.x * v1.y - v1.x * v0.y);
+  vec3 outVec;
+  outVec.y = (v2.x * v1.y - v1.x * v2.y) * denom;
+  outVec.z = (v0.x * v2.y - v2.x * v0.y) * denom;
+  outVec.x = 1.0 - outVec.y - outVec.z;
+  return outVec;
+}
+
+vec3 rayPlaneIntersect(Ray ray, vec3 p0, vec3 p1, vec3 p2) {
+  vec3 N = cross(p1-p0, p2-p0);
+  vec3 X = ray.origin + ray.direction * dot(p0 - ray.origin, N) / dot(ray.direction, N);
+
+  return X;
+}
+
+bool rayTrigIntersect(Ray r, vec3 vert0, vec3 vert1, vec3 vert2, out vec2 baryPosition, out float hitT)
+{
+  // find vectors for two edges sharing vert0
+  vec3 edge1 = vert1 - vert0;
+  vec3 edge2 = vert2 - vert0;
+
+	// begin calculating determinant - also used to calculate U parameter
+	vec3 p = cross(r.direction, edge2);
+
+	// if determinant is near zero, ray lies in plane of triangle
+	float det = dot(edge1, p);
+  vec3 Perpendicular = vec3(0);
+
+  if(det > EPS)
+  {
+    // calculate distance from vert0 to ray origin
+    vec3 dist = r.origin - vert0;
+
+    // calculate U parameter and test bounds
+    baryPosition.x = dot(dist, p);
+    if(baryPosition.x < 0 || baryPosition.x > det)
+      return false;
+
+    // prepare to test V parameter
+    Perpendicular = cross(dist, edge1);
+
+    // calculate V parameter and test bounds
+    baryPosition.y = dot(r.direction, Perpendicular);
+    if((baryPosition.y < 0) || ((baryPosition.x + baryPosition.y) > det))
+      return false;
+  }
+  else if(det < -EPS)
+  {
+    // calculate distance from vert0 to ray origin
+    vec3 dist = r.origin - vert0;
+
+    // calculate U parameter and test bounds
+    baryPosition.x = dot(dist, p);
+    if((baryPosition.x > 0) || (baryPosition.x < det))
+      return false;
+
+    // prepare to test V parameter
+    Perpendicular = cross(dist, edge1);
+
+    // calculate V parameter and test bounds
+    baryPosition.y = dot(r.direction, Perpendicular);
+    if((baryPosition.y > 0) || (baryPosition.x + baryPosition.y < det))
+      return false;
+  }
+  else
+    return false; // ray is parallel to the plane of the triangle
+
+  float inv_det = 1.0 / det;
+
+  // calculate distance, ray intersects triangle
+  hitT = dot(edge2, Perpendicular) * inv_det;
+  baryPosition *= inv_det;
+
+  return true;
+}
+bool rayAABBIntersect(vec3 Min, vec3 Max, Ray r, out float dist) {
+  vec3 invDir = 1.0 / r.direction;
+  float tx1 = (Min.x - r.origin.x) * invDir.x;
+  float tx2 = (Max.x - r.origin.x) * invDir.x;
+
+  float tmin = min(tx1, tx2);
+  float tmax = max(tx1, tx2);
+
+  float ty1 = (Min.y - r.origin.y) * invDir.y;
+  float ty2 = (Max.y - r.origin.y) * invDir.y;
+
+  tmin = max(tmin, min(ty1, ty2));
+  tmax = min(tmax, max(ty1, ty2));
+
+  float tz1 = (Min.z - r.origin.z) * invDir.z;
+  float tz2 = (Max.z - r.origin.z) * invDir.z;
+
+  tmin = max(tmin, min(tz1, tz2));
+  tmax = min(tmax, max(tz1, tz2));
+  dist = tmin;
+  return tmax > 0 && tmax > tmin;
 }
 
 #endif  // RAYCOMMON_GLSL

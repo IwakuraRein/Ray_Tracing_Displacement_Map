@@ -264,9 +264,8 @@ struct Tonemapper
   float contrast;
   float saturation;
   float vignette;
+
   float avgLum;
-  float zoom;
-  vec2  renderingRatio;
   int   autoExposure;
   float Ywhite;  // Burning white
   float key;     // Log-average luminance

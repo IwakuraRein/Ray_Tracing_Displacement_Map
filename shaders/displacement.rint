@@ -1,0 +1,259 @@
+/*
+ * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2021 NVIDIA CORPORATION
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#version 460
+#extension GL_EXT_ray_tracing : require
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_buffer_reference2 : require
+
+#include "host_device.h"
+#include "globals.glsl"
+#include "common.glsl"
+
+layout(set = S_SCENE, binding = eInstData,	scalar) buffer _InstanceInfo	{ InstanceData geoInfo[]; };
+layout(set = S_SCENE, binding = eMaterials,	scalar)	buffer _MaterialBuffer	{ GltfShadeMaterial materials[]; };
+layout(set = S_SCENE, binding = eDisplacementMaps)  uniform sampler2D		displacementMap[];
+layout(buffer_reference, scalar) buffer Vertices { VertexAttributes v[]; };
+layout(buffer_reference, scalar) buffer Indices	 { uvec3 i[];            };
+layout(push_constant) uniform _RtxState
+{
+  RtxState rtxState;
+};
+
+hitAttributeEXT vec2 outBaryCoord;
+
+struct _Texel{
+  int level;
+  ivec2 iCoord;
+  vec2 uv;
+  float texelSize;
+};
+struct _Triangle {
+  vec3 v0;
+  vec2 uv0;
+  vec3 v1;
+  vec2 uv1;
+  vec3 v2;
+  vec2 uv2;
+} _triangle;
+Displacement _displacement;
+int _totalLevels;
+
+vec3 getTangent() {
+  vec3 E1 = _triangle.v1 - _triangle.v0;
+  vec3 E2 = _triangle.v2 - _triangle.v0;
+  vec2 dUV1 = _triangle.uv1 - _triangle.uv0;
+  vec2 dUV2 = _triangle.uv2 - _triangle.uv0;
+  float f = 1.0 / (dUV1.x * dUV2.y - dUV2.x * dUV1.y);
+  return normalize(vec3(f * (dUV2.y * E1.x - dUV1.y * E2.x), f * (dUV2.y * E1.y - dUV1.y * E2.y), f * (dUV2.y * E1.z - dUV1.y * E2.z)));
+}
+int mipLevels(ivec2 extent) {
+  return int(floor(log2(max(extent.x, extent.y))));
+}
+ivec2 getICoord(vec2 uv, int mipLevel) {
+  float texelSize = pow(0.5, mipLevel);
+  return ivec2(int(uv.x / texelSize), int(uv.y / texelSize));
+}
+vec3 getPosFromUV(vec2 uv) {
+  vec3 baryCoord = getBaryCoord(uv, _triangle.uv0, _triangle.uv1, _triangle.uv2);
+  return vec3(dot(baryCoord, vec3(_triangle.v0.x, _triangle.v1.x, _triangle.v2.x)),
+              dot(baryCoord, vec3(_triangle.v0.y, _triangle.v1.y, _triangle.v2.y)),
+              dot(baryCoord, vec3(_triangle.v0.z, _triangle.v1.z, _triangle.v2.z)));
+}
+
+void updateTexel(inout _Texel texel){
+  texel.texelSize = pow(0.5, texel.level);
+  texel.uv = texel.iCoord * texel.texelSize + texel.texelSize * 0.5;
+}
+void traverseUp(inout _Texel texel){
+  texel.level--;
+  texel.iCoord /= 2;
+  updateTexel(texel);
+}
+void traverseDown(inout _Texel texel){
+  texel.level++;
+  texel.iCoord *= 2;
+  updateTexel(texel);
+}
+void traverseNext(inout _Texel texel){
+  while(true) {
+    switch((texel.iCoord.x % 2) * 2 + texel.iCoord.y % 2){
+      case 2:
+        texel.iCoord.x--;
+        texel.iCoord.y++;
+        updateTexel(texel);
+        return;
+      case 3:
+        traverseUp(texel);
+        continue;
+      default:
+        texel.iCoord.x++;
+        updateTexel(texel);
+        return;
+    }
+  }
+}
+bool pointInTrig(vec2 p, vec2 v_0, vec2 v_1, vec2 v_2) {
+  float det = (v_1.x - v_0.x) * (v_2.y - v_0.y) - (v_1.y - v_0.y) * (v_2.x - v_0.x);
+
+  return  det * ((v_1.x - v_0.x) * (p.y - v_0.y) - (v_1.y - v_0.y) * (p.x - v_0.x)) >= 0 &&
+          det * ((v_2.x - v_1.x) * (p.y - v_1.y) - (v_2.y - v_1.y) * (p.x - v_1.x)) >= 0 &&
+          det * ((v_0.x - v_2.x) * (p.y - v_2.y) - (v_0.y - v_2.y) * (p.x - v_2.x)) >= 0;
+}
+bool pointInRect(float l, float r, float t, float b, vec2 p) {
+  return p.x >= l && p.x <= r && p.y >= b && p.y <= t;
+}
+bool overlapWithTrig(_Texel texel) {
+  float halfTexel = texel.texelSize * 0.5;
+  float l = texel.uv.x - halfTexel;
+  float r = texel.uv.x + halfTexel;
+  float t = texel.uv.y + halfTexel;
+  float b = texel.uv.y - halfTexel;
+
+  if(pointInRect(l, r, t, b, _triangle.uv0))
+    return true;
+  if(pointInRect(l, r, t, b, _triangle.uv1))
+    return true;
+  if(pointInRect(l, r, t, b, _triangle.uv2))
+    return true;
+  if (pointInTrig(vec2(l,b), _triangle.uv0, _triangle.uv1, _triangle.uv2))
+    return true;
+  if (pointInTrig(vec2(l,t), _triangle.uv0, _triangle.uv1, _triangle.uv2))
+    return true;
+  if (pointInTrig(vec2(r,b), _triangle.uv0, _triangle.uv1, _triangle.uv2))
+    return true;
+  if (pointInTrig(vec2(r,t), _triangle.uv0, _triangle.uv1, _triangle.uv2))
+    return true;
+  return false;
+}
+
+bool rayHitBox(Ray r, _Texel texel, out float dist){
+  float halfTexel = texel.texelSize * 0.5;
+  ivec2 size = textureSize(displacementMap[_displacement.texture], _totalLevels - texel.level);
+  vec3 Min, Max;
+  // vec2 v1 = getPosFromUV(texel.uv - halfTexel).xy;
+  // vec2 v2 = getPosFromUV(texel.uv + halfTexel).xy;
+  // vec2 v3 = getPosFromUV(texel.uv + vec2(halfTexel, -halfTexel)).xy;
+  // vec2 v4 = getPosFromUV(texel.uv + vec2(-halfTexel, halfTexel)).xy;
+  // Min.xy = vec2(min(v1.x, v4.x), min(v1.y, v3.y));
+  // Max.xy = vec2(max(v2.x, v3.x), max(v2.y, v4.y));
+  
+  Min.xy = getPosFromUV(texel.uv - halfTexel).xy;
+  Max.xy = getPosFromUV(texel.uv + halfTexel).xy;
+
+  Min.z = 0;
+  Max.z = texelFetch(displacementMap[_displacement.texture], ivec2(texel.uv * size), _totalLevels - texel.level).x;
+  // Max.z = 0.1;
+  Max.z = Max.z * _displacement.factor + _displacement.offset;
+  if (Max.z <= 0) { Min.z = Max.z; Max.z = 0.0001; }
+  return rayAABBIntersect(Min, Max, r, dist);
+}
+void main()
+{
+  Ray r;
+  r.origin    = gl_WorldRayOriginEXT;
+  r.direction = gl_WorldRayDirectionEXT;
+  mat4 w2o = mat4(gl_WorldToObjectEXT);
+
+  // Primitive buffer addresses
+  Indices indices = Indices(geoInfo[gl_InstanceCustomIndexEXT].indexAddress);
+  Vertices vertices = Vertices(geoInfo[gl_InstanceCustomIndexEXT].vertexAddress);
+  uvec3 tri = indices.i[gl_PrimitiveID];
+  _displacement = materials[max(0, geoInfo[gl_InstanceCustomIndexEXT].materialIndex)].displacement;
+  mat4 uvTransform = materials[max(0, geoInfo[gl_InstanceCustomIndexEXT].materialIndex)].uvTransform;
+  _totalLevels = mipLevels(textureSize(displacementMap[_displacement.texture], 0));
+
+  // All in object space
+  _triangle.v0 = vertices.v[tri.x].position.xyz;
+  _triangle.uv0 = (vec4(vertices.v[tri.x].texcoord.xy, 1, 1) * uvTransform).xy;
+  _triangle.v1 = vertices.v[tri.y].position.xyz;
+  _triangle.uv1 = (vec4(vertices.v[tri.y].texcoord.xy, 1, 1) * uvTransform).xy;
+  _triangle.v2 = vertices.v[tri.z].position.xyz;
+  _triangle.uv2 = (vec4(vertices.v[tri.z].texcoord.xy, 1, 1) * uvTransform).xy;
+  vec3 N = normalize(cross(_triangle.v1 - _triangle.v0, _triangle.v2 - _triangle.v0));
+  vec3 T = getTangent();
+  vec3 B = cross(N, T);
+
+  { // rotate everything to tangent space
+    vec3 O = getPosFromUV(vec2(0, 0));
+    mat3 R = mat3(vec3(T.x, B.x, N.x),
+                  vec3(T.y, B.y, N.y),
+                  vec3(T.z, B.z, N.z));
+    mat4 H = mat4(vec4(T.x, B.x, N.x, 0),
+                  vec4(T.y, B.y, N.y, 0),
+                  vec4(T.z, B.z, N.z, 0),
+                  vec4(-R * O, 1));
+    _triangle.v0 = vec3(H * vec4(_triangle.v0, 1));
+    _triangle.v1 = vec3(H * vec4(_triangle.v1, 1));
+    _triangle.v2 = vec3(H * vec4(_triangle.v2, 1));
+
+    r.direction = normalize((w2o * vec4(r.direction, 0)).xyz);
+    r.origin = vec3(w2o * vec4(r.origin, 1));
+
+    r.origin = vec3(H * vec4(r.origin, 1));
+    r.direction = normalize(R * r.direction);
+  }
+
+  //traversal
+  float hitT = INFINITY;
+  float thisT;
+  _Texel texel;
+  texel.level = 0;
+  texel.iCoord = ivec2(0);
+
+  // first, find the smallest texel that wraps the triangle. this will be the root node
+  for(; texel.level <= _totalLevels; texel.level++) {
+    ivec2 c0 = getICoord(_triangle.uv0, texel.level);
+    ivec2 c1 = getICoord(_triangle.uv1, texel.level);
+    ivec2 c2 = getICoord(_triangle.uv2, texel.level);
+    if(c0 != c1 || c0 != c2) {
+      texel.level--;
+      break;
+    }
+    texel.iCoord = c0;
+  }
+  updateTexel(texel);
+
+  _Texel endTexel = texel;
+  traverseNext(endTexel);
+  while(texel.level != endTexel.level || texel.iCoord != endTexel.iCoord){
+    if (!overlapWithTrig(texel))
+      traverseNext(texel);
+    else {
+      if (rayHitBox(r, texel, thisT) && thisT < hitT) {
+        if (texel.level == _totalLevels) {
+          vec3 bary = getBaryCoord((r.origin + r.direction * thisT).xy, _triangle.v1.xy, _triangle.v2.xy, _triangle.v0.xy);
+          if (bary.x >= 0 && bary.y >= 0 && bary.z >= 0) {
+            hitT = thisT;
+            outBaryCoord = bary.xy;
+          }
+          traverseNext(texel);
+        }
+        else traverseDown(texel);
+      }
+      else traverseNext(texel);
+    }
+  }
+  if (hitT < INFINITY) {
+    reportIntersectionEXT(hitT, HIT_KIND_DISPLACED_CUBE);
+  }
+}

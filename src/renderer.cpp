@@ -37,8 +37,11 @@
 // Shaders
 #include "autogen/pathtrace.rahit.h"
 #include "autogen/pathtrace.rchit.h"
+#include "autogen/pathtrace2.rchit.h"
 #include "autogen/pathtrace.rgen.h"
 #include "autogen/pathtrace.rmiss.h"
+#include "autogen/displacement.rint.h"
+#include "autogen/triangle.rint.h"
 #include "autogen/pathtraceShadow.rmiss.h"
 
 //--------------------------------------------------------------------------------------------------
@@ -123,7 +126,9 @@ void Renderer::createPipeline()
     eMiss,
     eMiss2,
     eClosestHit,
+    eClosestHit2,
     eAnyHit,
+    eIntersection,
     eShaderGroupCount
   };
 
@@ -147,15 +152,28 @@ void Renderer::createPipeline()
   stage.stage    = VK_SHADER_STAGE_MISS_BIT_KHR;
   stages[eMiss2] = stage;
 
-  // Hit Group - Closest Hit
+  // Closest Hit
   stage.module        = nvvk::createShaderModule(m_device, pathtrace_rchit, sizeof(pathtrace_rchit));
   stage.stage         = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
   stages[eClosestHit] = stage;
 
-  // Hit Group - Any Hit
+  // Closest Hit for Aabb
+  stage.module        = nvvk::createShaderModule(m_device, pathtrace_rchit, sizeof(pathtrace2_rchit));
+  stage.stage         = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+  stages[eClosestHit2] = stage;
+
+  // Any Hit
   stage.module    = nvvk::createShaderModule(m_device, pathtrace_rahit, sizeof(pathtrace_rahit));
   stage.stage     = VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
   stages[eAnyHit] = stage;
+
+  // Intersection for Aabb
+  if (m_enableDisplacement)
+    stage.module  = nvvk::createShaderModule(m_device, displacement_rint, sizeof(displacement_rint));
+  else
+    stage.module  = nvvk::createShaderModule(m_device, triangle_rint, sizeof(triangle_rint));
+  stage.stage     = VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
+  stages[eIntersection] = stage;
 
 
   // Shader groups
@@ -185,6 +203,15 @@ void Renderer::createPipeline()
   group.type             = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
   group.generalShader    = VK_SHADER_UNUSED_KHR;
   group.closestHitShader = eClosestHit;
+  if(m_enableAnyhit)
+    group.anyHitShader = eAnyHit;
+  groups.push_back(group);
+
+  // closest hit shader and intersection shader
+  group.type               = VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR;
+  group.generalShader      = VK_SHADER_UNUSED_KHR;
+  group.closestHitShader   = eClosestHit2;
+  group.intersectionShader = eIntersection;
   if(m_enableAnyhit)
     group.anyHitShader = eAnyHit;
   groups.push_back(group);
@@ -274,5 +301,14 @@ void Renderer::run(const VkCommandBuffer& cmdBuf, const VkExtent2D& size, nvvk::
 void Renderer::useAnyHit(bool enable)
 {
   m_enableAnyhit = enable;
+  createPipeline();
+}
+
+//--------------------------------------------------------------------------------------------------
+// Toggle the usage of Intersecton shader for displacement map
+//
+void Renderer::useDisplacementMap(bool enable)
+{
+  m_enableDisplacement = enable;
   createPipeline();
 }

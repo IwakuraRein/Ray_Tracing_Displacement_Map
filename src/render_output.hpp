@@ -36,18 +36,23 @@
 class RenderOutput
 {
 public:
-  Tonemapper m_tonemapper{
+  struct PushConstant {
+    float zoom{ 1.f };
+    int debugging_mode;
+    vec2 renderingRatio{ 1.0f, 1.0f };
+    Tonemapper tm {
       1.0f,          // brightness;
       1.0f,          // contrast;
       1.0f,          // saturation;
       0.0f,          // vignette;
+
       1.0f,          // avgLum;
-      1.0f,          // zoom;
-      {1.0f, 1.0f},  // renderingRatio;
       0,             // autoExposure;
       0.5f,          // Ywhite;  // Burning white
       0.5f,          // key;     // Log-average luminance
-  };
+    };
+  } m_push;
+
 
 public:
   void setup(const VkDevice& device, const VkPhysicalDevice& physicalDevice, uint32_t familyIndex, nvvk::ResourceAllocator* allocator);

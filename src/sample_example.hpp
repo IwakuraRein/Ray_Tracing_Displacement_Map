@@ -186,7 +186,7 @@ public:
 
   int         m_maxFrames{100000};
   bool        m_showAxis{true};
-  bool        m_descaling{false};
+  bool        m_descaling{true};
   int         m_descalingLevel{1};
   bool        m_busy{false};
   std::string m_busyReasonText;

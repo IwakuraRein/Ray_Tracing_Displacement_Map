@@ -121,7 +121,7 @@ void RenderOutput::createPostPipeline(const VkRenderPass& renderPass)
   vkDestroyPipelineLayout(m_device, m_postPipelineLayout, nullptr);
 
   // Push constants in the fragment shader
-  VkPushConstantRange pushConstantRanges{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Tonemapper)};
+  VkPushConstantRange pushConstantRanges{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstant)};
 
   // Creating the pipeline layout
   VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -175,7 +175,7 @@ void RenderOutput::run(VkCommandBuffer cmdBuf)
 {
   LABEL_SCOPE_VK(cmdBuf);
 
-  vkCmdPushConstants(cmdBuf, m_postPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Tonemapper), &m_tonemapper);
+  vkCmdPushConstants(cmdBuf, m_postPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstant), &m_push);
   vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postPipeline);
   vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postPipelineLayout, 0, 1, &m_postDescSet, 0, nullptr);
   vkCmdDraw(cmdBuf, 3, 1, 0, 0);

@@ -40,6 +40,9 @@ layout(set = 0, binding = 0) uniform sampler2D inImage;
 
 layout(push_constant) uniform _Tonemapper
 {
+  float zoom;
+  int debugging_mode;
+  vec2 renderingRatio;
   Tonemapper tm;
 };
 
@@ -79,8 +82,8 @@ vec3 toneLocalExposure(vec3 RGB, float logAvgLum)
   float scale[7] = float[7](1, 2, 4, 8, 16, 32, 64);
   for(int i = 0; i < 7; ++i)
   {
-    float v1 = luminance(texture(inImage, uvCoords * tm.zoom, i).rgb) * factor;
-    float v2 = luminance(texture(inImage, uvCoords * tm.zoom, i + 1).rgb) * factor;
+    float v1 = luminance(texture(inImage, uvCoords * zoom, i).rgb) * factor;
+    float v2 = luminance(texture(inImage, uvCoords * zoom, i + 1).rgb) * factor;
     if(abs(v1 - v2) / ((tm.key * pow(2, phi) / (scale[i] * scale[i])) + v1) > epsilon)
     {
       La = v1;
@@ -98,7 +101,11 @@ vec3 toneLocalExposure(vec3 RGB, float logAvgLum)
 void main()
 {
   // Raw result of ray tracing
-  vec4 hdr = texture(inImage, uvCoords * tm.zoom).rgba;
+  vec4 hdr = texture(inImage, uvCoords * zoom).rgba;
+  if (debugging_mode != eNoDebug && debugging_mode != eBaseColor) {
+    fragColor = hdr;
+    return;
+  }
 
   if(((tm.autoExposure >> 0) & 1) == 1)
   {
@@ -127,7 +134,7 @@ void main()
   vec3 i = vec3(dot(color, vec3(0.299, 0.587, 0.114)));
   color  = mix(i, color, tm.saturation);
   // vignette
-  vec2 uv = ((uvCoords * tm.renderingRatio) - 0.5) * 2.0;
+  vec2 uv = ((uvCoords * renderingRatio) - 0.5) * 2.0;
   color *= 1.0 - dot(uv, uv) * tm.vignette;
 
   fragColor.xyz = color;

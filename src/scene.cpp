@@ -817,7 +817,7 @@ void Scene::createDisplacementTextures(VkCommandBuffer cmdBuf, const nvh::GltfSc
 //
 void Scene::createDescriptorSet(const nvh::GltfScene& gltf)
 {
-  VkShaderStageFlags flag = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR
+  VkShaderStageFlags flag = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_INTERSECTION_BIT_KHR
                             | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
   nvvk::DescriptorSetBindings bind;

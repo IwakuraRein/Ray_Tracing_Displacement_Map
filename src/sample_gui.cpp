@@ -123,6 +123,23 @@ bool SampleGUI::guiRayTracing()
   bool  changed{false};
   auto& rtxState(_se->m_rtxState);
 
+  changed |= GuiH::Selection("Debug Mode", "Display unique values of material", &rtxState.debugging_mode, nullptr, Normal,
+    {
+        "No Debug",
+        "BaseColor",
+        "Normal",
+        "Metallic",
+        "Emissive",
+        "Alpha",
+        "Roughness",
+        "TexCoord",
+        "Tangent",
+        "Radiance",
+        "Weight",
+        "RayDir",
+        "HeatMap",
+    });
+
   changed |= GuiH::Slider("Max Ray Depth", "", &rtxState.maxDepth, nullptr, Normal, 1, 10);
   changed |= GuiH::Slider("Samples Per Frame", "", &rtxState.maxSamples, nullptr, Normal, 1, 10);
   changed |= GuiH::Slider("Max Iteration ", "", &_se->m_maxFrames, nullptr, Normal, 1, 1000);
@@ -135,41 +152,29 @@ bool SampleGUI::guiRayTracing()
   changed |= GuiH::Selection("Pbr Mode", "PBR material model", &rtxState.pbrMode, nullptr, Normal, {"Disney", "Gltf"});
 
   static bool bAnyHit = true;
-  if(GuiH::Checkbox("Enable AnyHit", "AnyHit is used for double sided, cutout opacity, but can be slower when all objects are opaque",
+  static bool bDisplacement = true;
+  if(GuiH::Checkbox("AnyHit", "AnyHit is used for double sided, cutout opacity, but can be slower when all objects are opaque",
                     &bAnyHit, nullptr))
   {
     vkDeviceWaitIdle(_se->m_device);  // cannot run while changing this
     _se->m_pRenderer->useAnyHit(bAnyHit);
     changed = true;
   }
+  if(GuiH::Checkbox("Displacement Map", "",
+                    &bDisplacement, nullptr))
+  {
+    vkDeviceWaitIdle(_se->m_device);  // cannot run while changing this
+    _se->m_pRenderer->useDisplacementMap(bDisplacement);
+    changed = true;
+  }
 
-  GuiH::Group<bool>("Debugging", false, [&] {
-    changed |= GuiH::Selection("Debug Mode", "Display unique values of material", &rtxState.debugging_mode, nullptr, Normal,
-                               {
-                                   "No Debug",
-                                   "BaseColor",
-                                   "Normal",
-                                   "Metallic",
-                                   "Emissive",
-                                   "Alpha",
-                                   "Roughness",
-                                   "TexCoord",
-                                   "Tangent",
-                                   "Radiance",
-                                   "Weight",
-                                   "RayDir",
-                                   "HeatMap",
-                               });
-
-    if(rtxState.debugging_mode == eHeatmap)
-    {
-      changed |= GuiH::Drag("Min Heat map", "Minimum timing value, below this value it will be blue",
-                            &rtxState.minHeatmap, nullptr, Normal, 0, 1'000'000, 100);
-      changed |= GuiH::Drag("Max Heat map", "Maximum timing value, above this value it will be red",
-                            &rtxState.maxHeatmap, nullptr, Normal, 0, 1'000'000, 100);
-    }
-    return changed;
-  });
+  if (rtxState.debugging_mode == eHeatmap)
+  {
+    changed |= GuiH::Drag("Min Heat map", "Minimum timing value, below this value it will be blue",
+      &rtxState.minHeatmap, nullptr, Normal, 0, 1'000'000, 100);
+    changed |= GuiH::Drag("Max Heat map", "Maximum timing value, above this value it will be red",
+      &rtxState.maxHeatmap, nullptr, Normal, 0, 1'000'000, 100);
+  }
 
   GuiH::Info("Frame", "", std::to_string(rtxState.frame), GuiH::Flags::Disabled);
   return changed;
@@ -184,18 +189,21 @@ bool SampleGUI::guiTonemapper()
       1.0f,          // saturation;
       0.0f,          // vignette;
       1.0f,          // avgLum;
-      1.0f,          // zoom;
-      {1.0f, 1.0f},  // renderingRatio;
       0,             // autoExposure;
       0.5f,          // Ywhite;  // Burning white
       0.5f,          // key;     // Log-average luminance
   };
 
-  auto&          tm = _se->m_offscreen.m_tonemapper;
+  auto&          tm = _se->m_offscreen.m_push.tm;
   bool           changed{false};
   std::bitset<8> b(tm.autoExposure);
 
   bool autoExposure = b.test(0);
+
+  if (ImGui::SmallButton("Reset"))
+  {
+    tm = default_tm;
+  }
 
   changed |= GuiH::Checkbox("Auto Exposure", "Adjust exposure", (bool*)&autoExposure);
   changed |= GuiH::Slider("Exposure", "Scene Exposure", &tm.avgLum, &default_tm.avgLum, GuiH::Flags::Normal, 0.001f, 5.00f);
@@ -371,7 +379,7 @@ bool SampleGUI::guiProfiler(nvvk::ProfilerVK& profiler)
     collect.statTone.y += float(info.cpu.average / 1000.0f);
     collect.frameTime += 1000.0f / ImGui::GetIO().Framerate;
 
-    if(_se->m_offscreen.m_tonemapper.autoExposure == 1)
+    if(_se->m_offscreen.m_push.tm.autoExposure == 1)
     {
       profiler.getTimerInfo("Mipmap", info);
       mipmapGen = float(info.gpu.average / 1000.0f);
@@ -395,7 +403,7 @@ bool SampleGUI::guiProfiler(nvvk::ProfilerVK& profiler)
   ImGui::Text("Frame     [ms]: %2.3f", display.frameTime);
   ImGui::Text("Render GPU/CPU [ms]: %2.3f  /  %2.3f", display.statRender.x, display.statRender.y);
   ImGui::Text("Tone+UI GPU/CPU [ms]: %2.3f  /  %2.3f", display.statTone.x, display.statTone.y);
-  if(_se->m_offscreen.m_tonemapper.autoExposure == 1)
+  if(_se->m_offscreen.m_push.tm.autoExposure == 1)
     ImGui::Text("Mipmap Gen: %2.3fms", mipmapGen);
   ImGui::ProgressBar(display.statRender.x / display.frameTime);
 
