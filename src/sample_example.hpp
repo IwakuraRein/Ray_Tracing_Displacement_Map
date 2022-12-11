@@ -153,7 +153,7 @@ public:
 
   RtxState m_rtxState{
       0,       // frame;
-      10,      // maxDepth;
+      2,      // maxDepth;
       1,       // maxSamples;
       1,       // fireflyClampThreshold;
       1,       // hdrMultiplier;

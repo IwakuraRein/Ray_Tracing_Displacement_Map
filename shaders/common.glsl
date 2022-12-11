@@ -196,25 +196,27 @@ bool rayTrigIntersect(Ray r, vec3 vert0, vec3 vert1, vec3 vert2, out vec2 baryPo
 }
 bool rayAABBIntersect(vec3 Min, vec3 Max, Ray r, out float dist) {
   vec3 invDir = 1.0 / r.direction;
-  float tx1 = (Min.x - r.origin.x) * invDir.x;
-  float tx2 = (Max.x - r.origin.x) * invDir.x;
+  float tmin = 0.0, tmax = INFINITY;
+  float t1 = (Min.x - r.origin.x) * invDir.x;
+  float t2 = (Max.x - r.origin.x) * invDir.x;
 
-  float tmin = min(tx1, tx2);
-  float tmax = max(tx1, tx2);
+  tmin = max(tmin, min(t1, t2));
+  tmax = min(tmax, max(t1, t2));
 
-  float ty1 = (Min.y - r.origin.y) * invDir.y;
-  float ty2 = (Max.y - r.origin.y) * invDir.y;
+  t1 = (Min.y - r.origin.y) * invDir.y;
+  t2 = (Max.y - r.origin.y) * invDir.y;
 
-  tmin = max(tmin, min(ty1, ty2));
-  tmax = min(tmax, max(ty1, ty2));
+  tmin = max(tmin, min(t1, t2));
+  tmax = min(tmax, max(t1, t2));
 
-  float tz1 = (Min.z - r.origin.z) * invDir.z;
-  float tz2 = (Max.z - r.origin.z) * invDir.z;
+  t1 = (Min.z - r.origin.z) * invDir.z;
+  t2 = (Max.z - r.origin.z) * invDir.z;
 
-  tmin = max(tmin, min(tz1, tz2));
-  tmax = min(tmax, max(tz1, tz2));
+  tmin = max(tmin, min(t1, t2));
+  tmax = min(tmax, max(t1, t2));
+
   dist = tmin;
-  return tmax > 0 && tmax > tmin;
+  return tmax >= tmin;
 }
 
 #endif  // RAYCOMMON_GLSL

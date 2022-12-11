@@ -348,6 +348,7 @@ void Scene::createLightBuffer(VkCommandBuffer cmdBuf, const nvh::GltfScene& gltf
 
 void Scene::createAabbBuffer(VkCommandBuffer cmdBuf, const nvh::GltfScene& gltfScene, const tinygltf::Model& gltfModel)
 {
+  static const vec3 epsilon{ 0.00001f, 0.00001f, 0.00001f };
   for (const auto& node : gltfScene.m_nodes)
   {
     const auto& mesh = gltfScene.m_primMeshes[node.primMesh];
@@ -402,6 +403,8 @@ void Scene::createAabbBuffer(VkCommandBuffer cmdBuf, const nvh::GltfScene& gltfS
         std::max(std::max(std::max(v0.y, v1.y), v2.y), maximum.y),
         std::max(std::max(std::max(v0.z, v1.z), v2.z), maximum.z),
       };
+      minimum -= epsilon;
+      maximum += epsilon;
       aabbs.emplace_back(Aabb{ minimum, maximum });
     }
     auto buffer = m_pAlloc->createBuffer(cmdBuf, aabbs, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
