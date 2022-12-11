@@ -153,11 +153,11 @@ public:
 
   RtxState m_rtxState{
       0,       // frame;
-      2,      // maxDepth;
+      2,       // maxDepth;
       1,       // maxSamples;
       1,       // fireflyClampThreshold;
       1,       // hdrMultiplier;
-      0,       // debugging_mode;
+      1,       // debugging_mode;
       0,       // pbrMode;
       0,       // _pad0;
       {0, 0},  // size;

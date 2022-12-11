@@ -194,6 +194,69 @@ bool rayTrigIntersect(Ray r, vec3 vert0, vec3 vert1, vec3 vert2, out vec2 baryPo
 
   return true;
 }
+
+vec3 rayTrigIntersect(Ray r, vec3 vert0, vec3 vert1, vec3 vert2, out bool hit, out float hitT)
+{
+  // find vectors for two edges sharing vert0
+  vec3 edge1 = vert1 - vert0;
+  vec3 edge2 = vert2 - vert0;
+
+	// begin calculating determinant - also used to calculate U parameter
+	vec3 p = cross(r.direction, edge2);
+
+	// if determinant is near zero, ray lies in plane of triangle
+	float det = dot(edge1, p);
+  vec3 Perpendicular = vec3(0);
+  vec3 baryPosition;
+
+  if(det > EPS)
+  {
+    // calculate distance from vert0 to ray origin
+    vec3 dist = r.origin - vert0;
+
+    // calculate U parameter and test bounds
+    baryPosition.x = dot(dist, p);
+    if(baryPosition.x < 0 || baryPosition.x > det)
+      hit = false;
+
+    // prepare to test V parameter
+    Perpendicular = cross(dist, edge1);
+
+    // calculate V parameter and test bounds
+    baryPosition.y = dot(r.direction, Perpendicular);
+    if((baryPosition.y < 0) || ((baryPosition.x + baryPosition.y) > det))
+      hit = false;
+  }
+  else if(det < -EPS)
+  {
+    // calculate distance from vert0 to ray origin
+    vec3 dist = r.origin - vert0;
+
+    // calculate U parameter and test bounds
+    baryPosition.x = dot(dist, p);
+    if((baryPosition.x > 0) || (baryPosition.x < det))
+      hit = false;
+
+    // prepare to test V parameter
+    Perpendicular = cross(dist, edge1);
+
+    // calculate V parameter and test bounds
+    baryPosition.y = dot(r.direction, Perpendicular);
+    if((baryPosition.y > 0) || (baryPosition.x + baryPosition.y < det))
+      hit = false;
+  }
+  else hit = false;
+
+  float inv_det = 1.0 / det;
+
+  // calculate distance, ray intersects triangle
+  hitT = dot(edge2, Perpendicular) * inv_det;
+  baryPosition *= inv_det;
+  baryPosition.z = 1.0 - baryPosition.x-baryPosition.y;
+
+  hit = true;
+  return baryPosition;
+}
 bool rayAABBIntersect(vec3 Min, vec3 Max, Ray r, out float dist) {
   vec3 invDir = 1.0 / r.direction;
   float tmin = 0.0, tmax = INFINITY;

@@ -91,16 +91,17 @@ START_ENUM(DebugMode)
   eNoDebug   = 0,   //
   eBaseColor = 1,   //
   eNormal    = 2,   //
-  eMetallic  = 3,   //
-  eEmissive  = 4,   //
-  eAlpha     = 5,   //
-  eRoughness = 6,   //
-  eTexcoord  = 7,   //
-  eTangent   = 8,   //
-  eRadiance  = 9,   //
-  eWeight    = 10,  //
-  eRayDir    = 11,  //
-  eHeatmap   = 12   //
+  eDepth     = 3,   //
+  eMetallic  = 4,   //
+  eEmissive  = 5,   //
+  eAlpha     = 6,   //
+  eRoughness = 7,   //
+  eTexcoord  = 8,   //
+  eTangent   = 9,   //
+  eRadiance  = 10,  //
+  eWeight    = 11,  //
+  eRayDir    = 12,  //
+  eHeatmap   = 13   //
 END_ENUM();
 // clang-format on
 

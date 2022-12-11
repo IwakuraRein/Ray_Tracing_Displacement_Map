@@ -66,6 +66,8 @@ vec3 DebugInfo(in State state)
       return vec3(state.mat.metallic);
     case eNormal:
       return (state.normal + vec3(1)) * .5;
+    case eDepth:
+      return vec3(prd.hitT);
     case eBaseColor:
       return state.mat.albedo;
     case eEmissive:
@@ -205,8 +207,6 @@ vec3 PathTrace(Ray r)
     {
       if(rtxState.debugging_mode != eNoDebug)
       {
-        if(depth != rtxState.maxDepth - 1)
-          return vec3(0);
         if(rtxState.debugging_mode == eRadiance)
           return radiance;
         else if(rtxState.debugging_mode == eWeight)

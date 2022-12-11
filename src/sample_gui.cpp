@@ -128,6 +128,7 @@ bool SampleGUI::guiRayTracing()
         "No Debug",
         "BaseColor",
         "Normal",
+        "Depth",
         "Metallic",
         "Emissive",
         "Alpha",
@@ -193,8 +194,14 @@ bool SampleGUI::guiTonemapper()
       0.5f,          // Ywhite;  // Burning white
       0.5f,          // key;     // Log-average luminance
   };
+  static Tonemapper default_depth_tm{
+      0.0f,          // exposure;
+      0.0f,          // alpha;
+      1.0f,          // gamma;
+  };
 
   auto&          tm = _se->m_offscreen.m_push.tm;
+  int&           debugging_mode = _se->m_rtxState.debugging_mode;
   bool           changed{false};
   std::bitset<8> b(tm.autoExposure);
 
@@ -202,15 +209,22 @@ bool SampleGUI::guiTonemapper()
 
   if (ImGui::SmallButton("Reset"))
   {
-    tm = default_tm;
+    tm = debugging_mode == eDepth? default_depth_tm : default_tm;
   }
 
-  changed |= GuiH::Checkbox("Auto Exposure", "Adjust exposure", (bool*)&autoExposure);
-  changed |= GuiH::Slider("Exposure", "Scene Exposure", &tm.avgLum, &default_tm.avgLum, GuiH::Flags::Normal, 0.001f, 5.00f);
-  changed |= GuiH::Slider("Brightness", "", &tm.brightness, &default_tm.brightness, GuiH::Flags::Normal, 0.0f, 2.0f);
-  changed |= GuiH::Slider("Contrast", "", &tm.contrast, &default_tm.contrast, GuiH::Flags::Normal, 0.0f, 2.0f);
-  changed |= GuiH::Slider("Saturation", "", &tm.saturation, &default_tm.saturation, GuiH::Flags::Normal, 0.0f, 5.0f);
-  changed |= GuiH::Slider("Vignette", "", &tm.vignette, &default_tm.vignette, GuiH::Flags::Normal, 0.0f, 2.0f);
+  if (debugging_mode != eDepth) {
+    GuiH::Checkbox("Auto Exposure", "Adjust exposure", (bool*)&autoExposure);
+    GuiH::Slider("Exposure", "Scene Exposure", &tm.avgLum, &default_tm.avgLum, GuiH::Flags::Normal, 0.001f, 5.00f);
+    GuiH::Slider("Brightness", "", &tm.brightness, &default_tm.brightness, GuiH::Flags::Normal, 0.0f, 2.0f);
+    GuiH::Slider("Contrast", "", &tm.contrast, &default_tm.contrast, GuiH::Flags::Normal, 0.0f, 2.0f);
+    GuiH::Slider("Saturation", "", &tm.saturation, &default_tm.saturation, GuiH::Flags::Normal, 0.0f, 5.0f);
+    GuiH::Slider("Vignette", "", &tm.vignette, &default_tm.vignette, GuiH::Flags::Normal, 0.0f, 2.0f);
+  }
+  else {
+    GuiH::Slider("Exposure", "", &tm.brightness, &default_depth_tm.brightness, GuiH::Flags::Normal, -10.f, 10.f);
+    GuiH::Slider("Alpha", "", &tm.contrast, &default_depth_tm.contrast, GuiH::Flags::Normal, -1.f, 1.f);
+    GuiH::Slider("Gamma", "", &tm.saturation, &default_depth_tm.saturation, GuiH::Flags::Normal, 0.01f, 5.f);
+  }
 
 
   if(autoExposure)

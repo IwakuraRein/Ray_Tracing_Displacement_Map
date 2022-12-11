@@ -102,7 +102,17 @@ void main()
 {
   // Raw result of ray tracing
   vec4 hdr = texture(inImage, uvCoords * zoom).rgba;
-  if (debugging_mode != eNoDebug && debugging_mode != eBaseColor) {
+  if (debugging_mode == eDepth)
+  {
+    float depth = hdr.x;
+    depth *= pow(2, tm.brightness);
+    depth += tm.contrast;
+    depth = clamp(pow(depth, 1.0 / tm.saturation), 0.f, 1.f);
+    fragColor = vec4(depth, depth, depth, 1.0);
+    return;
+  }
+  if (debugging_mode != eNoDebug && debugging_mode != eBaseColor)
+  {
     fragColor = hdr;
     return;
   }
